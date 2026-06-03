@@ -28,7 +28,7 @@ contract SteadyPlanRegistryTest is Test {
     );
 
     function setUp() public {
-        registry = new SteadyPlanRegistry();
+        registry = new SteadyPlanRegistry(address(this));
     }
 
     function _create() internal returns (uint256) {

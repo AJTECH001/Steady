@@ -8,7 +8,8 @@ interface ISteadyPlanRegistry {
         None, // 0 = unset / nonexistent
         Active,
         Paused,
-        Cancelled
+        Cancelled,
+        Completed // all scheduled executions consumed
     }
 
     /// @param owner               address allowed to manage and withdraw the plan
@@ -44,15 +45,23 @@ interface ISteadyPlanRegistry {
     event PlanPaused(uint256 indexed planId);
     event PlanResumed(uint256 indexed planId);
     event PlanCancelled(uint256 indexed planId);
+    /// @notice Emitted when the executor consumes a due execution and reschedules.
+    event PlanAdvanced(uint256 indexed planId, uint64 nextDue, uint32 executionsRemaining);
+    /// @notice Emitted when the final scheduled execution is consumed.
+    event PlanCompleted(uint256 indexed planId);
+    event ExecutorUpdated(address indexed executor);
 
     error NotPlanOwner();
+    error NotExecutor();
     error InvalidAmount();
     error InvalidInterval();
     error InvalidExecutions();
     error InvalidToken();
+    error InvalidExecutor();
     error PlanDoesNotExist();
     error PlanNotActive();
     error PlanNotPaused();
+    error PlanNotDue();
     error PlanAlreadyCancelled();
 
     function createPlan(
@@ -68,6 +77,16 @@ interface ISteadyPlanRegistry {
     function resumePlan(uint256 planId) external;
 
     function cancelPlan(uint256 planId) external;
+
+    /// @notice Executor-only. Consumes one due execution and reschedules the plan.
+    /// @dev Reverts unless the plan is currently due. Completes the plan when the
+    ///      last execution is consumed.
+    function advanceSchedule(uint256 planId) external;
+
+    /// @notice Admin-only. Sets the contract authorised to call `advanceSchedule`.
+    function setExecutor(address executor) external;
+
+    function executor() external view returns (address);
 
     function getPlan(uint256 planId) external view returns (Plan memory);
 

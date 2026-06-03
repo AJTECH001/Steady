@@ -25,8 +25,8 @@ contract SteadyVaultTest is Test {
     uint256 planId;
 
     function setUp() public {
-        registry = new SteadyPlanRegistry();
-        vault = new SteadyVault(registry);
+        registry = new SteadyPlanRegistry(address(this));
+        vault = new SteadyVault(registry, address(this));
         tokenIn = new MockERC20("USD Coin", "USDC", 6);
 
         vm.prank(owner);
@@ -95,6 +95,54 @@ contract SteadyVaultTest is Test {
         vm.prank(owner);
         vm.expectRevert(ISteadyVault.InsufficientBalance.selector);
         vault.withdraw(planId, 21e6);
+    }
+
+    // --- Phase 3: executor-gated debit ---
+
+    function test_setExecutor_onlyOwner_andRejectsZero() public {
+        vm.expectRevert(); // OwnableUnauthorizedAccount
+        vm.prank(funder);
+        vault.setExecutor(funder);
+
+        vm.expectRevert(ISteadyVault.InvalidExecutor.selector);
+        vault.setExecutor(address(0));
+    }
+
+    function test_debit_byExecutor_movesFunds() public {
+        address executor = makeAddr("executor");
+        address sink = makeAddr("sink");
+        vault.setExecutor(executor);
+
+        vm.prank(owner);
+        vault.deposit(planId, 100e6);
+
+        vm.prank(executor);
+        vault.debit(planId, 50e6, sink);
+
+        assertEq(vault.balanceOf(planId), 50e6);
+        assertEq(tokenIn.balanceOf(sink), 50e6);
+        assertEq(tokenIn.balanceOf(address(vault)), 50e6);
+    }
+
+    function test_debit_reverts_forNonExecutor() public {
+        vault.setExecutor(makeAddr("executor"));
+        vm.prank(owner);
+        vault.deposit(planId, 100e6);
+
+        vm.prank(funder);
+        vm.expectRevert(ISteadyVault.NotExecutor.selector);
+        vault.debit(planId, 10e6, funder);
+    }
+
+    function test_debit_reverts_insufficientBalance() public {
+        address executor = makeAddr("executor");
+        vault.setExecutor(executor);
+        vm.prank(owner);
+        vault.deposit(planId, 20e6);
+
+        vm.prank(executor);
+        vm.expectRevert(ISteadyVault.InsufficientBalance.selector);
+        vault.debit(planId, 21e6, executor);
     }
 
     function testFuzz_deposit_withdraw_accounting(uint256 dep, uint256 wd) public {
