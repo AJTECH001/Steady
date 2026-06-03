@@ -1,10 +1,58 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import {ISteadyVault} from "steady/interfaces/ISteadyVault.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-/// @notice Custody of user funds + per-plan accounting.
-/// @dev Phase 2/3 scaffold — no logic yet.
-contract SteadyVault is ISteadyVault {
-    // scaffold
+import {ISteadyVault} from "steady/interfaces/ISteadyVault.sol";
+import {ISteadyPlanRegistry} from "steady/interfaces/ISteadyPlanRegistry.sol";
+
+/// @notice Holds the tokenIn funding each plan and tracks per-plan balances.
+/// @dev Phase 2 scope: deposit/withdraw against the plan's tokenIn. The registry is the
+///      source of truth for ownership and token. Executor-gated `debit` arrives in Phase 3.
+contract SteadyVault is ISteadyVault, ReentrancyGuard {
+    using SafeERC20 for IERC20;
+
+    ISteadyPlanRegistry public immutable registry;
+
+    mapping(uint256 planId => uint256 balance) private _balanceOf;
+
+    constructor(ISteadyPlanRegistry _registry) {
+        registry = _registry;
+    }
+
+    /// @inheritdoc ISteadyVault
+    /// @dev Anyone may fund a plan; funds are pulled in the plan's tokenIn.
+    ///      Reverts via the registry if the plan does not exist.
+    function deposit(uint256 planId, uint256 amount) external nonReentrant {
+        if (amount == 0) revert ZeroAmount();
+        ISteadyPlanRegistry.Plan memory plan = registry.getPlan(planId);
+
+        _balanceOf[planId] += amount;
+        IERC20(plan.tokenIn).safeTransferFrom(msg.sender, address(this), amount);
+
+        emit Deposited(planId, msg.sender, amount);
+    }
+
+    /// @inheritdoc ISteadyVault
+    /// @dev Only the plan owner may withdraw, in the plan's tokenIn.
+    function withdraw(uint256 planId, uint256 amount) external nonReentrant {
+        if (amount == 0) revert ZeroAmount();
+        ISteadyPlanRegistry.Plan memory plan = registry.getPlan(planId);
+        if (msg.sender != plan.owner) revert NotPlanOwner();
+
+        uint256 balance = _balanceOf[planId];
+        if (amount > balance) revert InsufficientBalance();
+        _balanceOf[planId] = balance - amount;
+
+        IERC20(plan.tokenIn).safeTransfer(msg.sender, amount);
+
+        emit Withdrawn(planId, msg.sender, amount);
+    }
+
+    /// @inheritdoc ISteadyVault
+    function balanceOf(uint256 planId) external view returns (uint256) {
+        return _balanceOf[planId];
+    }
 }
