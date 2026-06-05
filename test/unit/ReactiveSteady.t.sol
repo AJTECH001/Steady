@@ -4,52 +4,7 @@ pragma solidity ^0.8.29;
 import {Test} from "forge-std/Test.sol";
 import {ReactiveSteady} from "steady/reactive/ReactiveSteady.sol";
 import {IReactive} from "reactive-lib/src/interfaces/IReactive.sol";
-import {ISystemContract} from "reactive-lib/src/interfaces/ISystemContract.sol";
-import {ISubscriptionService} from "reactive-lib/src/interfaces/ISubscriptionService.sol";
-
-/// @notice Minimal stand-in for the Reactive Network system contract (0x8888...8888).
-///         Records the last subscribe() and requestCallbackV_1_0() calls for assertions.
-contract MockSystemContract is ISystemContract {
-    // last subscribe(...)
-    uint256 public subChainId;
-    address public subContract;
-    uint256 public subTopic0;
-    uint256 public subTopic1;
-    uint256 public subscribeCalls;
-
-    // last requestCallbackV_1_0(...)
-    uint256 public cbChainId;
-    address public cbRecipient;
-    uint64 public cbGasLimit;
-    bytes public cbPayload;
-    uint256 public callbackCalls;
-
-    function subscribe(uint256 c, address a, uint256 t0, uint256 t1, uint256, uint256) external override {
-        subChainId = c;
-        subContract = a;
-        subTopic0 = t0;
-        subTopic1 = t1;
-        subscribeCalls++;
-    }
-
-    function unsubscribe(uint256, address, uint256, uint256, uint256, uint256) external override {}
-
-    function requestCallback(CallbackVersion, bytes memory) external override {}
-
-    function requestCallbackV_1_0(CallbackConfiguration_V_1_0 memory config_) external override {
-        cbChainId = config_.chainId;
-        cbRecipient = config_.recipient;
-        cbGasLimit = config_.gasLimit;
-        cbPayload = config_.payload;
-        callbackCalls++;
-    }
-
-    function debt(address) external pure override returns (uint256) {
-        return 0;
-    }
-
-    receive() external payable override {}
-}
+import {MockSystemContract} from "../utils/mocks/MockSystemContract.sol";
 
 contract ReactiveSteadyTest is Test {
     address constant SYSTEM_ADDR = 0x8888888888888888888888888888888888888888;
@@ -68,7 +23,8 @@ contract ReactiveSteadyTest is Test {
         MockSystemContract mock = new MockSystemContract();
         vm.etch(SYSTEM_ADDR, address(mock).code);
 
-        reactive = new ReactiveSteady(ORIGIN_CHAIN, triggerContract, TRIGGER_TOPIC0, DEST_CHAIN, executor);
+        reactive = new ReactiveSteady(ORIGIN_CHAIN, triggerContract, TRIGGER_TOPIC0, DEST_CHAIN, address(this));
+        reactive.setExecutor(executor);
     }
 
     function _system() internal pure returns (MockSystemContract) {
@@ -110,6 +66,22 @@ contract ReactiveSteadyTest is Test {
         vm.prank(makeAddr("attacker"));
         vm.expectRevert(); // AbstractPayer.NotAuthorized
         reactive.react(log);
+    }
+
+    function test_setExecutor_onlyOwner() public {
+        vm.prank(makeAddr("stranger"));
+        vm.expectRevert(ReactiveSteady.NotOwner.selector);
+        reactive.setExecutor(makeAddr("x"));
+    }
+
+    function test_react_reverts_whenExecutorNotSet() public {
+        // Fresh ReactiveSteady with no executor set.
+        ReactiveSteady fresh =
+            new ReactiveSteady(ORIGIN_CHAIN, triggerContract, TRIGGER_TOPIC0, DEST_CHAIN, address(this));
+        IReactive.LogRecord memory log = _logWithPlan(1);
+        vm.prank(SYSTEM_ADDR);
+        vm.expectRevert(ReactiveSteady.ExecutorNotSet.selector);
+        fresh.react(log);
     }
 
     function _logWithPlan(uint256 planId) internal view returns (IReactive.LogRecord memory) {

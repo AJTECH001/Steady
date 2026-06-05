@@ -15,7 +15,14 @@ contract ReactiveSteady is AbstractReactive {
     uint256 public immutable destinationChainId;
 
     /// @notice SteadyExecutor address on the destination chain (the callback recipient).
-    address public immutable executor;
+    /// @dev Owner-settable rather than immutable: the executor on the destination chain and this
+    ///      contract on the Reactive chain reference each other, so the second-deployed address is
+    ///      unknown at the first's construction. Deploy this first, deploy the executor with this
+    ///      address as its callback sender, then call {setExecutor}.
+    address public executor;
+
+    /// @notice Admin allowed to set the executor.
+    address public owner;
 
     /// @notice Gas limit forwarded for the destination callback.
     uint64 public constant CALLBACK_GAS_LIMIT = 1_000_000;
@@ -25,20 +32,25 @@ contract ReactiveSteady is AbstractReactive {
     ///      authentication (see IReactive payload convention).
     bytes4 internal constant EXECUTE_PLAN_SELECTOR = bytes4(keccak256("executePlan(address,uint256)"));
 
+    event ExecutorUpdated(address indexed executor);
+
+    error NotOwner();
+    error ExecutorNotSet();
+
     /// @param originChainId_  EIP-155 chain id of the network emitting the trigger event.
     /// @param triggerContract_ Contract emitting the trigger event (e.g. the origin vault/registry).
     /// @param triggerTopic0_   topic0 (event signature hash) of the trigger event to watch.
     /// @param destinationChainId_ Chain id where SteadyExecutor is deployed.
-    /// @param executor_        SteadyExecutor address on the destination chain.
+    /// @param owner_           Admin allowed to set the executor after deployment.
     constructor(
         uint256 originChainId_,
         address triggerContract_,
         uint256 triggerTopic0_,
         uint256 destinationChainId_,
-        address executor_
+        address owner_
     ) {
         destinationChainId = destinationChainId_;
-        executor = executor_;
+        owner = owner_;
 
         // Watch the trigger event on the origin chain; planId is carried in topic1.
         SYSTEM.subscribe(
@@ -51,10 +63,19 @@ contract ReactiveSteady is AbstractReactive {
         );
     }
 
+    /// @notice Owner sets the destination-chain SteadyExecutor (callback recipient).
+    function setExecutor(address executor_) external {
+        if (msg.sender != owner) revert NotOwner();
+        executor = executor_;
+        emit ExecutorUpdated(executor_);
+    }
+
     /// @notice Entry point invoked by the Reactive Network system contract on a matching event.
     /// @dev `onlySystem` ensures only the network may trigger reactions. The planId is read from
     ///      the indexed topic1 of the trigger event.
     function react(LogRecord calldata log_) external override onlySystem {
+        address dest = executor;
+        if (dest == address(0)) revert ExecutorNotSet();
         uint256 planId = log_.topic1;
 
         bytes memory payload = abi.encodeWithSelector(EXECUTE_PLAN_SELECTOR, address(0), planId);
@@ -62,7 +83,7 @@ contract ReactiveSteady is AbstractReactive {
         SYSTEM.requestCallbackV_1_0(
             ISystemContract.CallbackConfiguration_V_1_0({
                 chainId: destinationChainId,
-                recipient: executor,
+                recipient: dest,
                 gasLimit: CALLBACK_GAS_LIMIT,
                 payload: payload
             })

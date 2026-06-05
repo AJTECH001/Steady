@@ -140,6 +140,21 @@ contract SteadyPlanRegistryTest is Test {
         registry.cancelPlan(id);
     }
 
+    function test_poke_emitsWhenDue_revertsWhenNot() public {
+        uint256 id = _create();
+
+        // Not yet due.
+        vm.expectRevert(ISteadyPlanRegistry.PlanNotDue.selector);
+        registry.poke(id);
+
+        // Due: permissionless poke emits PlanDue(planId).
+        vm.warp(block.timestamp + INTERVAL);
+        vm.expectEmit(true, false, false, false);
+        emit ISteadyPlanRegistry.PlanDue(id);
+        vm.prank(stranger); // anyone may poke
+        registry.poke(id);
+    }
+
     function test_management_reverts_forNonOwner() public {
         uint256 id = _create();
         vm.startPrank(stranger);

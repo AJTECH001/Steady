@@ -50,6 +50,8 @@ interface ISteadyPlanRegistry {
     /// @notice Emitted when the final scheduled execution is consumed.
     event PlanCompleted(uint256 indexed planId);
     event ExecutorUpdated(address indexed executor);
+    /// @notice Permissionless trigger event watched by ReactiveSteady. planId is indexed (topic1).
+    event PlanDue(uint256 indexed planId);
 
     error NotPlanOwner();
     error NotExecutor();
@@ -91,6 +93,11 @@ interface ISteadyPlanRegistry {
     function getPlan(uint256 planId) external view returns (Plan memory);
 
     function isDue(uint256 planId) external view returns (bool);
+
+    /// @notice Permissionless. Emits `PlanDue(planId)` if the plan is currently due; reverts otherwise.
+    /// @dev This is the origin-chain trigger ReactiveSteady subscribes to. Anyone (a keeper, the user)
+    ///      may poke; execution authority still rests entirely with the Reactive callback path.
+    function poke(uint256 planId) external;
 
     function getUserPlans(address user) external view returns (uint256[] memory);
 }

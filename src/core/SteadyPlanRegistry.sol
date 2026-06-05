@@ -125,10 +125,20 @@ contract SteadyPlanRegistry is ISteadyPlanRegistry, Ownable {
 
     /// @inheritdoc ISteadyPlanRegistry
     function isDue(uint256 planId) external view returns (bool) {
+        return _isDue(planId);
+    }
+
+    function _isDue(uint256 planId) internal view returns (bool) {
         Plan memory plan = _plans[planId];
         if (plan.status != PlanStatus.Active) return false;
         if (plan.executionsRemaining == 0) return false;
         return plan.nextDue.isDue(uint64(block.timestamp));
+    }
+
+    /// @inheritdoc ISteadyPlanRegistry
+    function poke(uint256 planId) external {
+        if (!_isDue(planId)) revert PlanNotDue();
+        emit PlanDue(planId);
     }
 
     /// @inheritdoc ISteadyPlanRegistry
