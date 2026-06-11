@@ -7,10 +7,12 @@ import {IReactive} from "reactive-lib/src/interfaces/IReactive.sol";
 import {MockSystemContract} from "../utils/mocks/MockSystemContract.sol";
 
 contract ReactiveSteadyTest is Test {
-    address constant SYSTEM_ADDR = 0x8888888888888888888888888888888888888888;
+    /// @dev Canonical Reactive Network system contract address (reactive-lib `SERVICE_ADDR`).
+    address constant SERVICE_ADDR = 0x0000000000000000000000000000000000fffFfF;
     uint256 constant REACTIVE_IGNORE = 0xa65f96fc951c35ead38878e0f0b7a3c744a6f5ccc1476b313353ce31712313ad;
 
-    ReactiveSteady reactive;
+    // Mirror of IReactive.Callback for expectEmit matching.
+    event Callback(uint256 indexed chain_id, address indexed _contract, uint64 indexed gas_limit, bytes payload);
 
     uint256 constant ORIGIN_CHAIN = 11155111; // Sepolia
     uint256 constant DEST_CHAIN = 84532; // Base Sepolia
@@ -18,86 +20,82 @@ contract ReactiveSteadyTest is Test {
     address executor = makeAddr("executor");
     uint256 constant TRIGGER_TOPIC0 = uint256(keccak256("PlanDue(uint256)"));
 
-    function setUp() public {
-        // Place the mock system-contract code at the canonical 0x8888 address.
+    /// @dev "Reactive Network" instance: system contract present at SERVICE_ADDR, so `detectVm`
+    ///      sets vm=false and the constructor subscribes. `react()` is disabled here (vmOnly).
+    function _rnInstance() internal returns (ReactiveSteady r, MockSystemContract sys) {
         MockSystemContract mock = new MockSystemContract();
-        vm.etch(SYSTEM_ADDR, address(mock).code);
-
-        reactive = new ReactiveSteady(ORIGIN_CHAIN, triggerContract, TRIGGER_TOPIC0, DEST_CHAIN, address(this));
-        reactive.setExecutor(executor);
+        vm.etch(SERVICE_ADDR, address(mock).code);
+        r = new ReactiveSteady(ORIGIN_CHAIN, triggerContract, TRIGGER_TOPIC0, DEST_CHAIN, address(this));
+        sys = MockSystemContract(payable(SERVICE_ADDR));
     }
 
-    function _system() internal pure returns (MockSystemContract) {
-        return MockSystemContract(payable(SYSTEM_ADDR));
+    /// @dev "ReactVM" instance: no system contract at SERVICE_ADDR, so `detectVm` sets vm=true and
+    ///      `react()` is enabled. The constructor skips subscribing (the `if (!vm)` guard).
+    function _vmInstance() internal returns (ReactiveSteady r) {
+        vm.etch(SERVICE_ADDR, ""); // ensure no code -> vm = true
+        r = new ReactiveSteady(ORIGIN_CHAIN, triggerContract, TRIGGER_TOPIC0, DEST_CHAIN, address(this));
+        r.setExecutor(executor);
     }
 
-    function test_constructor_subscribesToTrigger() public view {
-        MockSystemContract sys = _system();
+    function test_constructor_subscribesToTrigger() public {
+        (ReactiveSteady r, MockSystemContract sys) = _rnInstance();
         assertEq(sys.subscribeCalls(), 1);
         assertEq(sys.subChainId(), ORIGIN_CHAIN);
         assertEq(sys.subContract(), triggerContract);
         assertEq(sys.subTopic0(), TRIGGER_TOPIC0);
         assertEq(sys.subTopic1(), REACTIVE_IGNORE);
-        assertEq(reactive.destinationChainId(), DEST_CHAIN);
-        assertEq(reactive.executor(), executor);
+        assertEq(r.destinationChainId(), DEST_CHAIN);
     }
 
-    function test_react_requestsCallbackToExecutor() public {
+    function test_react_emitsCallbackToExecutor() public {
+        ReactiveSteady r = _vmInstance();
         uint256 planId = 7;
-        IReactive.LogRecord memory log = _logWithPlan(planId);
 
-        vm.prank(SYSTEM_ADDR);
-        reactive.react(log);
-
-        MockSystemContract sys = _system();
-        assertEq(sys.callbackCalls(), 1);
-        assertEq(sys.cbChainId(), DEST_CHAIN);
-        assertEq(sys.cbRecipient(), executor);
-        assertEq(sys.cbGasLimit(), reactive.CALLBACK_GAS_LIMIT());
-
-        // payload = executePlan(address(0) placeholder, planId)
-        bytes memory expected =
+        bytes memory payload =
             abi.encodeWithSelector(bytes4(keccak256("executePlan(address,uint256)")), address(0), planId);
-        assertEq(sys.cbPayload(), expected);
+
+        vm.expectEmit(true, true, true, true);
+        emit Callback(DEST_CHAIN, executor, r.CALLBACK_GAS_LIMIT(), payload);
+        r.react(_logWithPlan(planId));
     }
 
-    function test_react_reverts_forNonSystem() public {
-        IReactive.LogRecord memory log = _logWithPlan(1);
-        vm.prank(makeAddr("attacker"));
-        vm.expectRevert(); // AbstractPayer.NotAuthorized
-        reactive.react(log);
+    function test_react_reverts_onReactiveNetworkInstance() public {
+        // vm=false (system present) -> react() guarded by vmOnly must revert.
+        (ReactiveSteady r,) = _rnInstance();
+        r.setExecutor(executor);
+        vm.expectRevert(bytes("VM only"));
+        r.react(_logWithPlan(1));
     }
 
     function test_setExecutor_onlyOwner() public {
+        ReactiveSteady r = _vmInstance();
         vm.prank(makeAddr("stranger"));
         vm.expectRevert(ReactiveSteady.NotOwner.selector);
-        reactive.setExecutor(makeAddr("x"));
+        r.setExecutor(makeAddr("x"));
     }
 
     function test_react_reverts_whenExecutorNotSet() public {
-        // Fresh ReactiveSteady with no executor set.
+        vm.etch(SERVICE_ADDR, ""); // vm = true
         ReactiveSteady fresh =
             new ReactiveSteady(ORIGIN_CHAIN, triggerContract, TRIGGER_TOPIC0, DEST_CHAIN, address(this));
-        IReactive.LogRecord memory log = _logWithPlan(1);
-        vm.prank(SYSTEM_ADDR);
         vm.expectRevert(ReactiveSteady.ExecutorNotSet.selector);
-        fresh.react(log);
+        fresh.react(_logWithPlan(1));
     }
 
     function _logWithPlan(uint256 planId) internal view returns (IReactive.LogRecord memory) {
         return IReactive.LogRecord({
-            chainId: ORIGIN_CHAIN,
-            contractAddress: triggerContract,
-            topic0: TRIGGER_TOPIC0,
-            topic1: planId,
-            topic2: 0,
-            topic3: 0,
+            chain_id: ORIGIN_CHAIN,
+            _contract: triggerContract,
+            topic_0: TRIGGER_TOPIC0,
+            topic_1: planId,
+            topic_2: 0,
+            topic_3: 0,
             data: "",
-            blockNumber: 1,
-            opCode: 0,
-            blockHash: 0,
-            txHash: 0,
-            logIndex: 0
+            block_number: 1,
+            op_code: 0,
+            block_hash: 0,
+            tx_hash: 0,
+            log_index: 0
         });
     }
 }

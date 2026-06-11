@@ -2,7 +2,7 @@ forge-std/=lib/forge-std/src/
 
 steady/=src/
 
-reactive-lib/=lib/reactive-lib-omni/
+reactive-lib/=lib/reactive-lib/
 
 @uniswap/v4-core/=lib/uniswap-hooks/lib/v4-core/
 @uniswap/v4-periphery/=lib/uniswap-hooks/lib/v4-periphery/

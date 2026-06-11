@@ -14,26 +14,29 @@ import {IERC20} from "forge-std/interfaces/IERC20.sol";
 
 import {EasyPosm} from "../utils/libraries/EasyPosm.sol";
 import {BaseTest} from "../utils/BaseTest.sol";
-import {MockSystemContract} from "../utils/mocks/MockSystemContract.sol";
 
 import {SteadyPlanRegistry} from "steady/core/SteadyPlanRegistry.sol";
 import {SteadyVault} from "steady/core/SteadyVault.sol";
 import {SteadyExecutor} from "steady/execution/SteadyExecutor.sol";
 import {SteadyHook} from "steady/execution/SteadyHook.sol";
 import {ReactiveSteady} from "steady/reactive/ReactiveSteady.sol";
-import {ISystemContract} from "reactive-lib/src/interfaces/ISystemContract.sol";
 import {IReactive} from "reactive-lib/src/interfaces/IReactive.sol";
 
 /// @notice Phase 6 cross-chain simulation: poke (origin) -> ReactiveSteady.react (reactive VM)
-///         -> requestCallback -> SteadyExecutor.executePlan (destination) -> real V4 swap.
+///         -> Callback event -> SteadyExecutor.executePlan (destination) -> real V4 swap.
 /// @dev Collapses origin/destination onto one local chain (the trigger-only model keeps each
-///      plan's funds+pool native; ReactiveSteady is the automation glue). The Reactive system
-///      contract is mocked at 0x8888 and the callback proxy is simulated by an explicit call.
+///      plan's funds+pool native; ReactiveSteady is the automation glue). ReactiveSteady is
+///      deployed as a ReactVM instance (no system contract at SERVICE_ADDR, so `vm` is true and
+///      `react()` is enabled); the callback proxy is simulated by an explicit call.
 contract SteadyCrossChainTest is BaseTest {
     using EasyPosm for IPositionManager;
 
-    address constant SYSTEM_ADDR = 0x8888888888888888888888888888888888888888;
+    /// @dev Canonical Reactive Network system contract address (reactive-lib `SERVICE_ADDR`).
+    address constant SERVICE_ADDR = 0x0000000000000000000000000000000000fffFfF;
     uint256 constant TRIGGER_TOPIC0 = uint256(keccak256("PlanDue(uint256)"));
+
+    // Mirror of IReactive.Callback for expectEmit matching.
+    event Callback(uint256 indexed chain_id, address indexed _contract, uint64 indexed gas_limit, bytes payload);
 
     Currency currency0;
     Currency currency1;
@@ -74,9 +77,10 @@ contract SteadyCrossChainTest is BaseTest {
         registry = new SteadyPlanRegistry(admin);
         vault = new SteadyVault(registry, admin);
 
-        // Mock the Reactive system contract at 0x8888 before deploying ReactiveSteady (its ctor subscribes).
-        MockSystemContract mock = new MockSystemContract();
-        vm.etch(SYSTEM_ADDR, address(mock).code);
+        // Deploy ReactiveSteady as a ReactVM instance: no system contract at SERVICE_ADDR means
+        // `detectVm` sets vm=true, which enables react() (and skips the constructor subscribe, which
+        // only runs on the top-level Reactive Network instance — covered in the unit test).
+        vm.etch(SERVICE_ADDR, "");
 
         // Resolve the executor<->reactive cross-chain reference by deploy order:
         // ReactiveSteady first (executor settable), then the executor with the reactive address as
@@ -117,10 +121,6 @@ contract SteadyCrossChainTest is BaseTest {
         );
     }
 
-    function _system() internal pure returns (MockSystemContract) {
-        return MockSystemContract(payable(SYSTEM_ADDR));
-    }
-
     /// @notice The full automation loop end to end.
     function test_fullLoop_pokeToSwap() public {
         vm.warp(block.timestamp + INTERVAL);
@@ -130,37 +130,34 @@ contract SteadyCrossChainTest is BaseTest {
         vm.prank(keeper);
         registry.poke(planId);
 
-        // 2) Reactive VM: system delivers the matching log to ReactiveSteady.react().
+        // 2) Reactive VM: the network delivers the matching log to ReactiveSteady.react(), which
+        //    emits a Callback requesting executePlan on the destination chain.
         IReactive.LogRecord memory log = IReactive.LogRecord({
-            chainId: CHAIN_ID,
-            contractAddress: address(registry),
-            topic0: TRIGGER_TOPIC0,
-            topic1: planId,
-            topic2: 0,
-            topic3: 0,
+            chain_id: CHAIN_ID,
+            _contract: address(registry),
+            topic_0: TRIGGER_TOPIC0,
+            topic_1: planId,
+            topic_2: 0,
+            topic_3: 0,
             data: "",
-            blockNumber: 1,
-            opCode: 0,
-            blockHash: 0,
-            txHash: 0,
-            logIndex: 0
+            block_number: 1,
+            op_code: 0,
+            block_hash: 0,
+            tx_hash: 0,
+            log_index: 0
         });
-        vm.prank(SYSTEM_ADDR);
+        bytes memory payload =
+            abi.encodeWithSelector(bytes4(keccak256("executePlan(address,uint256)")), address(0), planId);
+        vm.expectEmit(true, true, true, true);
+        emit Callback(CHAIN_ID, address(executor), reactive.CALLBACK_GAS_LIMIT(), payload);
         reactive.react(log);
 
-        // 3) ReactiveSteady requested a callback to the executor. Decode it.
-        MockSystemContract sys = _system();
-        assertEq(sys.callbackCalls(), 1);
-        assertEq(sys.cbRecipient(), address(executor));
-        bytes memory payload = sys.cbPayload();
-
-        // 4) Callback proxy delivers the callback, injecting the reactive contract as arg 0.
-        (, uint256 decodedPlanId) = abi.decode(_stripSelector(payload), (address, uint256));
-        assertEq(decodedPlanId, planId);
+        // 3) Callback proxy delivers the callback, injecting the reactive RVM id (modeled here as the
+        //    reactive contract address, matching the executor's configured reactiveSender).
         vm.prank(callbackProxy);
-        executor.executePlan(address(reactive), decodedPlanId);
+        executor.executePlan(address(reactive), planId);
 
-        // 5) Destination: swap executed, owner received the bought token, schedule advanced.
+        // 4) Destination: swap executed, owner received the bought token, schedule advanced.
         assertGt(IERC20(Currency.unwrap(currency1)).balanceOf(user), ownerOutBefore);
         assertEq(registry.getPlan(planId).executionsRemaining, EXECUTIONS - 1);
     }
@@ -168,13 +165,5 @@ contract SteadyCrossChainTest is BaseTest {
     function test_poke_revertsWhenNotDue() public {
         vm.expectRevert(); // PlanNotDue
         registry.poke(planId);
-    }
-
-    /// @dev Removes the leading 4-byte selector so the args can be abi.decoded.
-    function _stripSelector(bytes memory payload) internal pure returns (bytes memory args) {
-        args = new bytes(payload.length - 4);
-        for (uint256 i = 0; i < args.length; i++) {
-            args[i] = payload[i + 4];
-        }
     }
 }

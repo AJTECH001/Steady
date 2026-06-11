@@ -21,10 +21,19 @@ deploy-dest:
 	forge script script/deploy/01_DeploySteady.s.sol:DeploySteady \
 		--rpc-url $(UNICHAIN_SEPOLIA_RPC_URL) --broadcast -vvv
 
-# 2. Reactive chain: deploy ReactiveSteady (set REGISTRY + DESTINATION_CHAIN_ID first).
+# 2. Reactive chain: deploy ReactiveSteady (needs REGISTRY + DESTINATION_CHAIN_ID in .env).
+#    Uses `forge create`, NOT `forge script`: ReactiveSteady's constructor calls subscribe() on the
+#    Reactive system contract, which invokes a node-only precompile that Foundry's local EVM lacks.
+#    `forge script` executes the constructor locally to assemble the broadcast and reverts ("Failure");
+#    `forge create` runs the constructor on-chain only, where the precompile exists. The --value funds
+#    the contract with REACT so its subscription registers (override with REACTIVE_FUND).
 deploy-reactive:
-	forge script script/deploy/02_DeployReactive.s.sol:DeployReactive \
-		--rpc-url $(REACTIVE_LASNA_RPC_URL) --broadcast -vvv
+	forge create src/reactive/ReactiveSteady.sol:ReactiveSteady \
+		--rpc-url $(REACTIVE_LASNA_RPC_URL) --private-key $(PRIVATE_KEY) --broadcast \
+		--value $(if $(REACTIVE_FUND),$(REACTIVE_FUND),0.05ether) \
+		--constructor-args $(DESTINATION_CHAIN_ID) $(REGISTRY) \
+			$(shell cast keccak "PlanDue(uint256)") $(DESTINATION_CHAIN_ID) \
+			$(shell cast wallet address --private-key $(PRIVATE_KEY))
 
 # 3. Destination chain: point the executor at ReactiveSteady (set EXECUTOR + REACTIVE_STEADY).
 wire-dest:

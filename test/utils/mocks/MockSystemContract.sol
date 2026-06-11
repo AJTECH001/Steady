@@ -3,8 +3,10 @@ pragma solidity ^0.8.29;
 
 import {ISystemContract} from "reactive-lib/src/interfaces/ISystemContract.sol";
 
-/// @notice Minimal stand-in for the Reactive Network system contract (0x8888...8888).
-///         Records the last subscribe() and requestCallbackV_1_0() calls for assertions.
+/// @notice Minimal stand-in for the Reactive Network system contract (0x0000...fffFfF).
+///         Records the last subscribe() call for assertions. The callback in the standard
+///         reactive-lib model is emitted as an event by the reactive contract (not a system
+///         call), so this mock only needs the subscription surface plus the payer hooks.
 contract MockSystemContract is ISystemContract {
     // last subscribe(...)
     uint256 public subChainId;
@@ -12,13 +14,6 @@ contract MockSystemContract is ISystemContract {
     uint256 public subTopic0;
     uint256 public subTopic1;
     uint256 public subscribeCalls;
-
-    // last requestCallbackV_1_0(...)
-    uint256 public cbChainId;
-    address public cbRecipient;
-    uint64 public cbGasLimit;
-    bytes public cbPayload;
-    uint256 public callbackCalls;
 
     function subscribe(uint256 c, address a, uint256 t0, uint256 t1, uint256, uint256) external override {
         subChainId = c;
@@ -29,16 +24,6 @@ contract MockSystemContract is ISystemContract {
     }
 
     function unsubscribe(uint256, address, uint256, uint256, uint256, uint256) external override {}
-
-    function requestCallback(CallbackVersion, bytes memory) external override {}
-
-    function requestCallbackV_1_0(CallbackConfiguration_V_1_0 memory config_) external override {
-        cbChainId = config_.chainId;
-        cbRecipient = config_.recipient;
-        cbGasLimit = config_.gasLimit;
-        cbPayload = config_.payload;
-        callbackCalls++;
-    }
 
     function debt(address) external pure override returns (uint256) {
         return 0;

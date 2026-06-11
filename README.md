@@ -213,22 +213,26 @@ make poke                 # 6. trigger execution
 
 Full step-by-step runbook: [`docs/DEPLOY.md`](docs/DEPLOY.md).
 
+> `make deploy-reactive` uses `forge create` (not `forge script`): `ReactiveSteady`'s constructor
+> calls `subscribe()` on the Reactive system contract, which invokes a node-only precompile that
+> Foundry's local EVM lacks — `forge script` would execute the constructor locally and revert.
+
 ### Deployed Addresses (Unichain Sepolia / Reactive Lasna)
 
 | Contract | Network | Address |
 |---|---|---|
-| SteadyPlanRegistry | Unichain Sepolia | `<fill after deploy>` |
-| SteadyVault | Unichain Sepolia | `<fill after deploy>` |
-| SteadyHook | Unichain Sepolia | `<fill after deploy>` |
-| SteadyExecutor | Unichain Sepolia | `<fill after deploy>` |
-| ReactiveSteady | Reactive Lasna | `<fill after deploy>` |
+| SteadyPlanRegistry | Unichain Sepolia | `0xc6226f5094664c82AE181673F58e2C15d24896a1` |
+| SteadyVault | Unichain Sepolia | `0xABc7d4B0a660039438013700F033597901A3BEe4` |
+| SteadyHook | Unichain Sepolia | `0x23C0d0c83beF5ee4F061c506E793E7Bc1ca05080` |
+| SteadyExecutor | Unichain Sepolia | `0xA924205e2b180573929b4A14BB8Bb3AFC4CE0855` |
+| ReactiveSteady | Reactive Lasna | `0x045962833e855095DbE8B061d0e7E929a3f5C55c` |
 
 ---
 
 ## Security Model
 
 - **Reentrancy:** `ReentrancyGuard` on vault deposit/withdraw/debit and executor `executePlan`; strict checks-effects-interactions.
-- **Cross-chain auth (dual):** `executePlan` requires `msg.sender == Reactive callback proxy` **and** the proxy-injected `sender == ReactiveSteady`. Neither alone is sufficient.
+- **Cross-chain auth (dual):** `executePlan` requires `msg.sender == Reactive callback proxy` (`authorizedSenderOnly`) **and** the proxy-injected `sender == ` the trusted reactive RVM id (`onlyReactive`). Neither alone is sufficient.
 - **Replay protection:** `advanceSchedule` reverts unless the plan's window has elapsed; schedule monotonicity prevents double-execution within a period.
 - **Schedule safety:** rescheduling is anchored to `now + interval`, preventing a "catch-up burst" that could drain a plan if execution is delayed.
 - **Slippage:** per-plan opt-in `minAmountOut` guard on every swap.
@@ -243,7 +247,7 @@ Steady's own contracts live in [`src/`](src/). It builds on these audited/establ
 - [Uniswap v4-core / v4-periphery](https://github.com/Uniswap/v4-core) — PoolManager, hook interfaces, `HookMiner`.
 - [OpenZeppelin `uniswap-hooks`](https://github.com/OpenZeppelin/uniswap-hooks) — `BaseHook`, `BaseOverrideFee` (the base for `SteadyHook`).
 - [OpenZeppelin Contracts](https://github.com/OpenZeppelin/openzeppelin-contracts) — `Ownable`, `SafeERC20`, `ReentrancyGuard`.
-- [`Reactive-Network/reactive-lib-omni`](https://github.com/Reactive-Network) `@ v0.1.0` — `AbstractReactive`, `AbstractCallback`.
+- [`Reactive-Network/reactive-lib`](https://github.com/Reactive-Network/reactive-lib) — `AbstractReactive`, `AbstractCallback` (the standard lib the live Reactive Network runs).
 - [`hookmate`](https://github.com/akshatmittal/hookmate) — canonical V4 address constants.
 
 Bootstrapped from the OpenZeppelin Uniswap v4 hook template. All Steady-specific logic was written during the Hookathon period.

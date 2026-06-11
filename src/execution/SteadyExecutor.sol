@@ -14,8 +14,7 @@ import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 
-import {AbstractCallback} from "reactive-lib/src/base/AbstractCallback.sol";
-import {IPayable} from "reactive-lib/src/interfaces/IPayable.sol";
+import {AbstractCallback} from "reactive-lib/src/abstract-base/AbstractCallback.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 import {ISteadyExecutor} from "steady/interfaces/ISteadyExecutor.sol";
@@ -52,12 +51,14 @@ contract SteadyExecutor is ISteadyExecutor, AbstractCallback, Ownable, Reentranc
     /// @inheritdoc ISteadyExecutor
     mapping(uint256 planId => uint256) public minAmountOut;
 
-    /// @notice Trusted ReactiveSteady contract; the proxy-injected `sender` must equal this.
-    /// @dev Owner-settable to resolve the cross-chain deploy cycle (executor and ReactiveSteady
-    ///      live on different chains and reference each other).
+    /// @notice Trusted reactive RVM id; the proxy-injected `sender` must equal this.
+    /// @dev In the Reactive callback model the proxy overwrites the payload's leading address with
+    ///      the originating reactive contract's RVM id (the deployer address that owns the ReactVM).
+    ///      Owner-settable to resolve the cross-chain deploy cycle and to pin the exact RVM id once
+    ///      ReactiveSteady is deployed.
     address public reactiveSender;
 
-    /// @dev Authorises a callback: the proxy-injected sender must be the trusted reactive contract.
+    /// @dev Authorises a callback: the proxy-injected sender must be the trusted reactive RVM id.
     modifier onlyReactive(address sender) {
         if (sender == address(0) || sender != reactiveSender) revert UnauthorizedCallback();
         _;
@@ -78,7 +79,7 @@ contract SteadyExecutor is ISteadyExecutor, AbstractCallback, Ownable, Reentranc
         address callbackProxy_,
         address callbackSender_,
         address initialOwner_
-    ) AbstractCallback(IPayable(payable(callbackProxy_)), callbackSender_) Ownable(initialOwner_) {
+    ) AbstractCallback(callbackProxy_) Ownable(initialOwner_) {
         reactiveSender = callbackSender_;
         poolManager = poolManager_;
         vault = vault_;
@@ -91,13 +92,14 @@ contract SteadyExecutor is ISteadyExecutor, AbstractCallback, Ownable, Reentranc
     }
 
     /// @inheritdoc ISteadyExecutor
-    /// @dev Dual cross-chain auth: `onlyServiceProvider` enforces msg.sender == the callback proxy
-    ///      (so no arbitrary EOA can call this), and `onlyReactive` enforces the proxy-injected
-    ///      `sender` == the configured ReactiveSteady contract. Both are required to prevent spoofing.
+    /// @dev Dual cross-chain auth: `authorizedSenderOnly` enforces msg.sender == the callback proxy
+    ///      (the only address in the AbstractCallback ACL, so no arbitrary EOA can call this), and
+    ///      `onlyReactive` enforces the proxy-injected `sender` == the configured reactive RVM id.
+    ///      Both are required to prevent spoofing.
     function executePlan(address sender, uint256 planId)
         external
         nonReentrant
-        onlyServiceProvider
+        authorizedSenderOnly
         onlyReactive(sender)
     {
         ISteadyPlanRegistry.Plan memory plan = registry.getPlan(planId);
