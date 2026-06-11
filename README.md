@@ -1,184 +1,255 @@
-# Uniswap v4 Hook Template
-
-**A template for writing Uniswap v4 Hooks 🦄**
-
-### Get Started
-
-This template provides a starting point for writing Uniswap v4 Hooks, including a simple example and preconfigured test environment. Start by creating a new repository using the "Use this template" button at the top right of this page. Alternatively you can also click this link:
-
-[![Use this Template](https://img.shields.io/badge/Use%20this%20Template-101010?style=for-the-badge&logo=github)](https://github.com/uniswapfoundation/v4-template/generate)
-
-1. The example hook [Counter.sol](src/Counter.sol) demonstrates the `beforeSwap()` and `afterSwap()` hooks
-2. The test template [Counter.t.sol](test/Counter.t.sol) preconfigures the v4 pool manager, test tokens, and test liquidity.
-
-<details>
-<summary>Updating to v4-template:latest</summary>
-
-This template is actively maintained -- you can update the v4 dependencies, scripts, and helpers:
-
-```bash
-git remote add template https://github.com/uniswapfoundation/v4-template
-git fetch template
-git merge template/main <BRANCH> --allow-unrelated-histories
-```
-
-</details>
-
-### Requirements
-
-This template is designed to work with Foundry (stable). If you are using Foundry Nightly, you may encounter compatibility issues. You can update your Foundry installation to the latest stable version by running:
-
-```
-foundryup
-```
-
-To set up the project, run the following commands in your terminal to install dependencies and run the tests:
-
-```
-forge install
-forge test
-```
-
-### Local Development
-
-Other than writing unit tests (recommended!), you can only deploy & test hooks on [anvil](https://book.getfoundry.sh/anvil/) locally. Scripts are available in the `script/` directory, which can be used to deploy hooks, create pools, provide liquidity and swap tokens. The scripts support both local `anvil` environment as well as running them directly on a production network.
-
-### Executing locally with using **Anvil**:
-
-1. Start Anvil (or fork a specific chain using anvil):
-
-```bash
-anvil
-```
-
-or
-
-```bash
-anvil --fork-url <YOUR_RPC_URL>
-```
-
-2. Execute scripts:
-
-```bash
-forge script script/00_DeployHook.s.sol \
-    --rpc-url http://localhost:8545 \
-    --private-key <PRIVATE_KEY> \
-    --broadcast
-```
-
-### Using **RPC URLs** (actual transactions):
-
-:::info
-It is best to not store your private key even in .env or enter it directly in the command line. Instead use the `--account` flag to select your private key from your keystore.
-:::
-
-### Follow these steps if you have not stored your private key in the keystore:
-
-<details>
-
-1. Add your private key to the keystore:
-
-```bash
-cast wallet import <SET_A_NAME_FOR_KEY> --interactive
-```
-
-2. You will prompted to enter your private key and set a password, fill and press enter:
-
-```
-Enter private key: <YOUR_PRIVATE_KEY>
-Enter keystore password: <SET_NEW_PASSWORD>
-```
-
-You should see this:
-
-```
-`<YOUR_WALLET_PRIVATE_KEY_NAME>` keystore was saved successfully. Address: <YOUR_WALLET_ADDRESS>
-```
-
-::: warning
-Use `history -c` to clear your command history.
-:::
-
-</details>
-
-1. Execute scripts:
-
-```bash
-forge script script/00_DeployHook.s.sol \
-    --rpc-url <YOUR_RPC_URL> \
-    --account <YOUR_WALLET_PRIVATE_KEY_NAME> \
-    --sender <YOUR_WALLET_ADDRESS> \
-    --broadcast
-```
-
-You will prompted to enter your wallet password, fill and press enter:
-
-```
-Enter keystore password: <YOUR_PASSWORD>
-```
-
-### Key Modifications to note:
-
-1. Update the `token0` and `token1` addresses in the `BaseScript.sol` file to match the tokens you want to use in the network of your choice for sepolia and mainnet deployments.
-2. Update the `token0Amount` and `token1Amount` in the `CreatePoolAndAddLiquidity.s.sol` file to match the amount of tokens you want to provide liquidity with.
-3. Update the `token0Amount` and `token1Amount` in the `AddLiquidity.s.sol` file to match the amount of tokens you want to provide liquidity with.
-4. Update the `amountIn` and `amountOutMin` in the `Swap.s.sol` file to match the amount of tokens you want to swap.
-
-### Verifying the hook contract
-
-```bash
-forge verify-contract \
-  --rpc-url <URL> \
-  --chain <CHAIN_NAME_OR_ID> \
-  # Generally etherscan
-  --verifier <Verification_Provider> \
-  # Use --etherscan-api-key <ETHERSCAN_API_KEY> if you are using etherscan
-  --verifier-api-key <Verification_Provider_API_KEY> \
-  --constructor-args <ABI_ENCODED_ARGS> \
-  --num-of-optimizations <OPTIMIZER_RUNS> \
-  <Contract_Address> \
-  <path/to/Contract.sol:ContractName>
-  --watch
-```
-
-### Troubleshooting
-
-<details>
-
-#### Permission Denied
-
-When installing dependencies with `forge install`, Github may throw a `Permission Denied` error
-
-Typically caused by missing Github SSH keys, and can be resolved by following the steps [here](https://docs.github.com/en/github/authenticating-to-github/connecting-to-github-with-ssh)
-
-Or [adding the keys to your ssh-agent](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent#adding-your-ssh-key-to-the-ssh-agent), if you have already uploaded SSH keys
-
-#### Anvil fork test failures
-
-Some versions of Foundry may limit contract code size to ~25kb, which could prevent local tests to fail. You can resolve this by setting the `code-size-limit` flag
-
-```
-anvil --code-size-limit 40000
-```
-
-#### Hook deployment failures
-
-Hook deployment failures are caused by incorrect flags or incorrect salt mining
-
-1. Verify the flags are in agreement:
-   - `getHookCalls()` returns the correct flags
-   - `flags` provided to `HookMiner.find(...)`
-2. Verify salt mining is correct:
-   - In **forge test**: the _deployer_ for: `new Hook{salt: salt}(...)` and `HookMiner.find(deployer, ...)` are the same. This will be `address(this)`. If using `vm.prank`, the deployer will be the pranking address
-   - In **forge script**: the deployer must be the CREATE2 Proxy: `0x4e59b44847b379578588920cA78FbF26c0B4956C`
-     - If anvil does not have the CREATE2 deployer, your foundry may be out of date. You can update it with `foundryup`
-
-</details>
-
-### Additional Resources
-
-- [Uniswap v4 docs](https://docs.uniswap.org/contracts/v4/overview)
-- [v4-periphery](https://github.com/uniswap/v4-periphery)
-- [v4-core](https://github.com/uniswap/v4-core)
-- [v4-by-example](https://v4-by-example.org)
 # Steady
+
+**Set your crypto savings on autopilot.**
+
+Steady is a cross-chain automated savings protocol. Users create recurring savings plans — _"buy $50 of ETH every week"_ — and execution runs itself: a [Uniswap v4](https://docs.uniswap.org/contracts/v4/overview) dynamic-fee hook makes savers' swaps fee-free, and the [Reactive Network](https://dev.reactive.network/) provides the on-chain automation that fires each purchase when it's due — no off-chain keeper, no manual transactions.
+
+<p align="center">
+  <img alt="Solidity" src="https://img.shields.io/badge/Solidity-0.8.30-363636?logo=solidity">
+  <img alt="Foundry" src="https://img.shields.io/badge/Built%20with-Foundry-FF6B35">
+  <img alt="Uniswap v4" src="https://img.shields.io/badge/Uniswap-v4%20Hook-FF007A">
+  <img alt="Reactive" src="https://img.shields.io/badge/Reactive-Network-00D395">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-64%20passing-brightgreen">
+  <img alt="License" src="https://img.shields.io/badge/license-MIT-blue">
+</p>
+
+> [!WARNING]
+> **Unaudited software.** These contracts have not been audited. Do not use with real funds.
+
+---
+
+## Table of Contents
+
+1. [The Problem](#the-problem)
+2. [How It Works](#how-it-works)
+3. [Architecture](#architecture)
+4. [Partner Integrations](#partner-integrations)
+5. [The Hook: `SteadyHook`](#the-hook-steadyhook)
+6. [Contracts](#contracts)
+7. [Repository Structure](#repository-structure)
+8. [Getting Started](#getting-started)
+9. [Testing](#testing)
+10. [Deployment](#deployment)
+11. [Security Model](#security-model)
+12. [Acknowledgements & Dependencies](#acknowledgements--dependencies)
+13. [License](#license)
+
+---
+
+## The Problem
+
+Dollar-cost averaging (DCA) is the single most reliable retail savings strategy, but on-chain it is painful:
+
+- **It requires discipline or a trusted bot.** You either remember to swap every week, or you hand a centralized keeper an allowance and hope.
+- **Keepers are off-chain and opaque.** Most "automated" DeFi savings tools rely on a server that can fail, censor, or disappear.
+- **Savers pay full swap fees** on every recurring purchase, eroding returns over time.
+
+**Steady** removes all three. Plans live on-chain, execution is triggered trustlessly by the Reactive Network, and a Uniswap v4 hook waives the swap fee for savings executions.
+
+---
+
+## How It Works
+
+```
+1. createPlan(tokenIn, tokenOut, amount, interval, executions)   ← user defines a plan
+2. deposit(planId, amount)                                        ← user funds the vault
+3. poke(planId)        (permissionless, when due)                ← emits PlanDue
+        │
+        ▼  Reactive Network is subscribed to PlanDue
+4. ReactiveSteady.react(log)  →  requestCallbackV_1_0(...)        ← on-chain automation
+        │
+        ▼  Reactive callback proxy delivers the callback
+5. SteadyExecutor.executePlan(sender, planId)                     ← verified callback only
+        ├─ registry.advanceSchedule(planId)   (replay-safe)
+        ├─ vault.debit(planId, amount)        (pull funds)
+        └─ poolManager.unlock → swap → settle → take             ← real Uniswap v4 swap
+                                                                    (fee-free via SteadyHook)
+6. tokenOut delivered to the saver; schedule advanced.
+```
+
+The full loop is proven end-to-end in [`test/crosschain/SteadyCrossChain.t.sol`](test/crosschain/SteadyCrossChain.t.sol).
+
+---
+
+## Architecture
+
+Steady is **trigger-only cross-chain**: each plan's funds and pool stay native on one chain (the destination), while `ReactiveSteady` runs on the Reactive Network and acts as the automation glue.
+
+```
+┌──────────────────────────────────────────────┐      ┌──────────────────────────────┐
+│       DESTINATION CHAIN (Unichain Sepolia)     │      │   REACTIVE NETWORK (Lasna)   │
+│                                                │      │                              │
+│  user ─createPlan/deposit─▶ SteadyPlanRegistry │      │   ReactiveSteady             │
+│                            + SteadyVault       │      │   - subscribes to PlanDue    │
+│                                  │ poke        │      │   - react() → requestCallback│
+│                          emit PlanDue ─────────┼──────┼──▶ (origin event watch)      │
+│                                                │      │         │                    │
+│   SteadyExecutor ◀───────── callback ──────────┼──────┼─────────┘ (callback proxy)   │
+│      │  unlock / swap / settle / take          │      │                              │
+│      ▼                                          │      └──────────────────────────────┘
+│   Uniswap v4 PoolManager  +  SteadyHook        │
+│      (dynamic-fee pool; executions fee-free)   │
+└──────────────────────────────────────────────┘
+```
+
+---
+
+## Partner Integrations
+
+> This section maps each partner technology to exactly where it lives in the code.
+
+### Uniswap v4 (Hook + PoolManager)
+
+| Integration | File | Where |
+|---|---|---|
+| **Dynamic-fee hook** (`afterInitialize` + `beforeSwap`) | [`src/execution/SteadyHook.sol`](src/execution/SteadyHook.sol) | extends `BaseOverrideFee` (L23); fee policy in `_getFee` (L71) |
+| **Real v4 swap** (`unlock`/`swap`/`settle`/`take`) | [`src/execution/SteadyExecutor.sol`](src/execution/SteadyExecutor.sol) | `poolManager.unlock` (L122), `swap` (L147), `settle` (L167), `take` (L171) |
+| **PoolManager addresses** | [`script/deploy/01_DeploySteady.s.sol`](script/deploy/01_DeploySteady.s.sol) | via `hookmate` `AddressConstants` by chain id |
+
+### Reactive Network (cross-chain automation)
+
+| Integration | File | Where |
+|---|---|---|
+| **Reactive contract** (`AbstractReactive`, `subscribe`, `react`, `requestCallbackV_1_0`) | [`src/reactive/ReactiveSteady.sol`](src/reactive/ReactiveSteady.sol) | subscribe (L56), `react` (L76), `requestCallbackV_1_0` (L83) |
+| **Destination callback receiver** (`AbstractCallback`, dual auth) | [`src/execution/SteadyExecutor.sol`](src/execution/SteadyExecutor.sol) | `AbstractCallback` (L38/L81), `onlyServiceProvider` + `onlyReactive` (L100–101) |
+| **Callback-proxy addresses** | [`script/config/ChainConfig.sol`](script/config/ChainConfig.sol) | verified per-chain proxies |
+
+All Reactive APIs are verified against `Reactive-Network/reactive-lib-omni @ v0.1.0` (vendored in `lib/`).
+
+---
+
+## The Hook: `SteadyHook`
+
+`SteadyHook` is a **Uniswap v4 dynamic-fee hook** built on OpenZeppelin's audited [`BaseOverrideFee`](https://github.com/OpenZeppelin/uniswap-hooks).
+
+**Policy:** swaps initiated by the `SteadyExecutor` (i.e. recurring savings executions) are charged `steadyFee` (0% — fee-free DCA), while all other swappers pay `defaultFee` (0.30%).
+
+| Property | Value |
+|---|---|
+| Hook permissions | `afterInitialize`, `beforeSwap` |
+| Pool requirement | initialized with `LPFeeLibrary.DYNAMIC_FEE_FLAG` |
+| Fee override | `beforeSwap` returns `fee \| OVERRIDE_FEE_FLAG` |
+| Auth | owner sets the executor + fees |
+
+The fee waiver is proven with real swaps in [`test/integration/SteadyHook.t.sol`](test/integration/SteadyHook.t.sol) (`test_steadyExecutionGetsFeeWaiver`).
+
+---
+
+## Contracts
+
+| Contract | Responsibility |
+|---|---|
+| [`SteadyPlanRegistry`](src/core/SteadyPlanRegistry.sol) | Plan lifecycle (create/pause/resume/cancel), schedule math, `poke` trigger, executor-gated `advanceSchedule` |
+| [`SteadyVault`](src/core/SteadyVault.sol) | Per-plan custody of the funding token; deposit/withdraw/executor-gated `debit` |
+| [`SteadyExecutor`](src/execution/SteadyExecutor.sol) | Verified Reactive callback → V4 swap → deliver output; replay & slippage protection |
+| [`SteadyHook`](src/execution/SteadyHook.sol) | Dynamic-fee hook making savings executions fee-free |
+| [`ReactiveSteady`](src/reactive/ReactiveSteady.sol) | Reactive Network contract: watches `PlanDue`, posts cross-chain callbacks |
+
+Supporting: [`ScheduleLib`](src/libraries/ScheduleLib.sol) (due/next-due math), [`ChainConfig`](script/config/ChainConfig.sol) (per-chain constants).
+
+---
+
+## Repository Structure
+
+```
+src/
+├── core/        SteadyPlanRegistry.sol   SteadyVault.sol
+├── execution/   SteadyExecutor.sol       SteadyHook.sol
+├── reactive/    ReactiveSteady.sol
+├── interfaces/  ISteadyPlanRegistry/Vault/Executor.sol
+└── libraries/   ScheduleLib.sol
+test/
+├── unit/        per-contract + fuzz
+├── integration/ executor + hook against a real local PoolManager
+└── crosschain/  full poke → react → callback → swap loop
+script/
+├── config/      ChainConfig.sol
+└── deploy/      01_DeploySteady → 06_Poke
+docs/            DEPLOY.md (runbook)
+```
+
+---
+
+## Getting Started
+
+**Prerequisites:** [Foundry](https://book.getfoundry.sh/getting-started/installation).
+
+```bash
+git clone https://github.com/AJTECH001/Steady.git
+cd Steady
+git submodule update --init --recursive
+forge build
+```
+
+---
+
+## Testing
+
+```bash
+forge test            # 64 tests
+forge test -vvv       # with traces
+forge coverage        # coverage report
+```
+
+Coverage spans unit + fuzz (schedule math, vault accounting), integration against a **real local Uniswap v4 PoolManager**, and a full cross-chain simulation of the automation loop.
+
+---
+
+## Deployment
+
+Steady deploys across **two networks**: a destination chain (Unichain Sepolia) for the savings contracts + pool, and the Reactive Network (Lasna) for `ReactiveSteady`.
+
+> Arbitrum Sepolia is **not** supported by Reactive Network. Use Unichain Sepolia, Base Sepolia, or Ethereum Sepolia.
+
+```bash
+cp .env.example .env      # add PRIVATE_KEY (0x-prefixed) + RPCs
+make deploy-dest          # 1. destination: tokens, core, hook, executor, pool, liquidity
+make deploy-reactive      # 2. reactive:    ReactiveSteady
+make wire-dest            # 3. executor → reactive sender
+make wire-reactive        # 4. reactive  → executor
+make demo                 # 5. create + fund a plan
+make poke                 # 6. trigger execution
+```
+
+Full step-by-step runbook: [`docs/DEPLOY.md`](docs/DEPLOY.md).
+
+### Deployed Addresses (Unichain Sepolia / Reactive Lasna)
+
+| Contract | Network | Address |
+|---|---|---|
+| SteadyPlanRegistry | Unichain Sepolia | `<fill after deploy>` |
+| SteadyVault | Unichain Sepolia | `<fill after deploy>` |
+| SteadyHook | Unichain Sepolia | `<fill after deploy>` |
+| SteadyExecutor | Unichain Sepolia | `<fill after deploy>` |
+| ReactiveSteady | Reactive Lasna | `<fill after deploy>` |
+
+---
+
+## Security Model
+
+- **Reentrancy:** `ReentrancyGuard` on vault deposit/withdraw/debit and executor `executePlan`; strict checks-effects-interactions.
+- **Cross-chain auth (dual):** `executePlan` requires `msg.sender == Reactive callback proxy` **and** the proxy-injected `sender == ReactiveSteady`. Neither alone is sufficient.
+- **Replay protection:** `advanceSchedule` reverts unless the plan's window has elapsed; schedule monotonicity prevents double-execution within a period.
+- **Schedule safety:** rescheduling is anchored to `now + interval`, preventing a "catch-up burst" that could drain a plan if execution is delayed.
+- **Slippage:** per-plan opt-in `minAmountOut` guard on every swap.
+- **Access control:** owner-gated admin; executor-gated state mutations; hook callbacks restricted to the PoolManager.
+
+---
+
+## Acknowledgements & Dependencies
+
+Steady's own contracts live in [`src/`](src/). It builds on these audited/established libraries (vendored in `lib/`):
+
+- [Uniswap v4-core / v4-periphery](https://github.com/Uniswap/v4-core) — PoolManager, hook interfaces, `HookMiner`.
+- [OpenZeppelin `uniswap-hooks`](https://github.com/OpenZeppelin/uniswap-hooks) — `BaseHook`, `BaseOverrideFee` (the base for `SteadyHook`).
+- [OpenZeppelin Contracts](https://github.com/OpenZeppelin/openzeppelin-contracts) — `Ownable`, `SafeERC20`, `ReentrancyGuard`.
+- [`Reactive-Network/reactive-lib-omni`](https://github.com/Reactive-Network) `@ v0.1.0` — `AbstractReactive`, `AbstractCallback`.
+- [`hookmate`](https://github.com/akshatmittal/hookmate) — canonical V4 address constants.
+
+Bootstrapped from the OpenZeppelin Uniswap v4 hook template. All Steady-specific logic was written during the Hookathon period.
+
+---
+
+## License
+
+[MIT](LICENSE)
