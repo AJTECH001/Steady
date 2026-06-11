@@ -75,22 +75,11 @@ The full loop is proven end-to-end in [`test/crosschain/SteadyCrossChain.t.sol`]
 
 Steady is **trigger-only cross-chain**: each plan's funds and pool stay native on one chain (the destination), while `ReactiveSteady` runs on the Reactive Network and acts as the automation glue.
 
-```
-┌──────────────────────────────────────────────┐      ┌──────────────────────────────┐
-│       DESTINATION CHAIN (Unichain Sepolia)     │      │   REACTIVE NETWORK (Lasna)   │
-│                                                │      │                              │
-│  user ─createPlan/deposit─▶ SteadyPlanRegistry │      │   ReactiveSteady             │
-│                            + SteadyVault       │      │   - subscribes to PlanDue    │
-│                                  │ poke        │      │   - react() → requestCallback│
-│                          emit PlanDue ─────────┼──────┼──▶ (origin event watch)      │
-│                                                │      │         │                    │
-│   SteadyExecutor ◀───────── callback ──────────┼──────┼─────────┘ (callback proxy)   │
-│      │  unlock / swap / settle / take          │      │                              │
-│      ▼                                          │      └──────────────────────────────┘
-│   Uniswap v4 PoolManager  +  SteadyHook        │
-│      (dynamic-fee pool; executions fee-free)   │
-└──────────────────────────────────────────────┘
-```
+<p align="center">
+  <img alt="Steady cross-chain architecture" src="docs/steady_arch.png" width="100%">
+</p>
+
+The numbered flow: **(1)** create &amp; **(2)** fund a plan → **(3)** a permissionless `poke` emits `PlanDue` → ReactiveSteady on Lasna reacts and emits a `Callback` → the callback proxy invokes `executePlan`, which **(3)** debits the vault, **(4)** swaps fee-free through the v4 pool, **(5)** delivers the bought token to the saver, and **(6)** advances the schedule. Solid lines are same-chain calls; dashed lines are cross-chain Reactive hops.
 
 ---
 
